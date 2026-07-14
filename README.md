@@ -1,43 +1,169 @@
 # Obxcura
 
-TODO: Delete this and the text below, and describe your gem
+A small Ruby client for the [Obscura](https://github.com/h4ckf0r0day/obscura)
+headless browser, driven over the Chrome DevTools Protocol.
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/obxcura`. To experiment with that code, run `bin/console` for an interactive prompt.
+A `Browser` owns one WebSocket connection; each `Page` is a CDP target with its
+own attached session. One connection, many pages.
+
+> **Obxcura vs Obscura.** This gem is `Obxcura`. The browser it drives is
+> `obscura` — a separate binary you run yourself. The `x` keeps them apart.
 
 ## Installation
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
-
-Install the gem and add to the application's Gemfile by executing:
-
 ```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+bundle add obxcura
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
-
-```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
-```
+You also need the `obscura` binary on your `PATH`
+([releases](https://github.com/h4ckf0r0day/obscura/releases)).
 
 ## Usage
 
-TODO: Write usage instructions here
+Start the browser first (defaults to port 9222):
+
+```bash
+obscura serve
+```
+
+Then:
+
+```ruby
+require "obxcura"
+
+browser = Obxcura::Browser.new     # or Obxcura.start
+page    = browser.go_to("https://example.com")
+
+page.html                          # rendered DOM, post-JS
+page.title                         # "Example Domain"
+page.current_url                   # "https://example.com/"
+page.evaluate("1 + 2")             # => 3
+
+browser.quit
+```
+
+### Querying the DOM
+
+`#at_css` / `#css` return live `Obxcura::Node` handles backed by the real DOM:
+
+```ruby
+page.at_css("h1").text             # => "Example Domain"
+page.at_css("a")["href"]           # attribute value, or nil
+page.at_css("h1").outer_html       # "<h1>Example Domain</h1>"
+page.css("p").map(&:text)          # every <p>'s text
+page.at_css("#missing")            # => nil
+```
+
+### Running JavaScript
+
+Pass Ruby values as arguments — they cross into the page as real values
+(`arguments[0]`, `arguments[1]`, …), never string-interpolated into source:
+
+```ruby
+page.evaluate("arguments[0] * 2", 21)          # => 42
+
+# `evaluate_func` calls a function declaration directly:
+page.evaluate_func(<<~JS, "h1")
+  function(sel) { return document.querySelector(sel).textContent; }
+JS
+```
+
+### POSTing from inside the page
+
+Obscura routes `XMLHttpRequest` but not `fetch`, so `#xhr_post` runs the POST
+from the page's context (reusing its cookies). Values cross as arguments:
+
+```ruby
+result = page.xhr_post(
+  "https://example.com/api/login",
+  URI.encode_www_form(user: "me", pass: "secret"),   # payload
+  "application/x-www-form-urlencoded",                # content type
+  { "X-Requested-With" => "XMLHttpRequest" }          # headers
+)
+
+result["status"]   # => 200
+result["ok"]       # => true  (2xx)
+result["body"]     # response text
+```
+
+Any HTTP reply (including 4xx/5xx) comes back as `{ "status", "ok", "body" }`.
+A transport failure — the request never reached the server (CORS, the
+private-network SSRF guard, mixed origin, a dead host) — raises
+`Obxcura::ConnectionError`. If the server accepts the connection but never
+answers, the wait ends with `Obxcura::TimeoutError`; pass `timeout:` (seconds)
+to bound it. Some anti-bot endpoints tarpit non-stealth clients — try
+`obscura serve --stealth`.
+
+## API
+
+`Obxcura.start(**opts)` is sugar for `Obxcura::Browser.new`.
+
+- **`Obxcura::Browser`** — `.new(host:, port:, timeout:)`, `#create_page(url)`,
+  `#go_to`/`#goto`, `#targets`, `#version`, `#command`, `#close`/`#quit`.
+  Readers: `#client`, `#pages`, `#host`, `#port`.
+- **`Obxcura::Page`** — `#goto`/`#go_to`, `#evaluate`, `#evaluate_func`,
+  `#html`/`#body`, `#title`, `#current_url`, `#at_css`, `#css`, `#xhr_post`,
+  `#cookies`, `#refresh`/`#reload`, `#command`, `#close`, `#close_connection`.
+  Readers: `#frame`, `#target_id`, `#session_id`, `#client`.
+- **`Obxcura::Node`** (from `#at_css`/`#css`) — `#text`, `#[]` (attribute),
+  `#outer_html`, `#object_id`.
+- **`Obxcura::Frame`** — the main frame behind a Page; carries the DOM/Runtime
+  methods Page delegates (`#evaluate`, `#at_css`, `#read_string`, …).
+- **`Obxcura::Client`** — the CDP transport, if you need raw `#command`,
+  `#subscribe` / `#unsubscribe`, or `#close`.
+
+Errors all descend from `Obxcura::Error`: `TimeoutError`, `ProtocolError`,
+`ConnectionError`.
+
+## Obscura's quirks (and how Obxcura handles them)
+
+These are properties of the **Obscura browser**, not of this gem. They shape the
+API, so they're worth knowing:
+
+- **No paint engine.** There is no screenshot API, and there never will be one
+  here. `Page.captureScreenshot` is unusable.
+- **~500–700 KB message ceiling.** Obscura won't send a single CDP message
+  larger than that. `Page#html` works around it by snapshotting `outerHTML` into
+  a page global and pulling it back in 400 KB slices. Don't return giant values
+  from `#evaluate` directly.
+- **DOM nodes don't serialize.** A node returned by value comes back as an
+  internal stub, so `#at_css` / `#css` resolve it (via `DOM.resolveNode`) to a
+  live handle and read it with `Runtime.callFunctionOn`.
+- **XHR, not fetch.** Obscura routes `XMLHttpRequest` but not `fetch`, so
+  `#xhr_post` uses XHR from the page context. It also ignores
+  `XMLHttpRequest#timeout`, so the effective bound is the CDP-level `timeout:`.
+- **Persistent cookies.** `obscura serve` is long-lived and its cookie jar
+  survives `#quit` (that only drops the WebSocket). Read them with
+  `page.cookies`; closing a page clears the browser's cookie jar.
+- **Private networks are blocked by default.** To drive a local site, start the
+  browser with `obscura serve --allow-private-network`.
+
+The transport is built directly on `websocket-driver` rather than
+`websocket-client-simple`, which reads a byte at a time and wedges on large
+frames.
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+```bash
+bin/setup
+bundle exec rake          # rubocop + rspec
+bundle exec rake doc      # YARD docs into doc/
+bin/console               # IRB with the gem loaded
+```
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+The integration specs boot a real `obscura serve` against a local WEBrick test
+site. Point them at your binary:
+
+```bash
+OBSCURA_BIN=/path/to/obscura bundle exec rspec
+```
+
+Without the binary those specs skip cleanly, so `bundle exec rspec` still passes.
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/obxcura. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [code of conduct](https://github.com/[USERNAME]/obxcura/blob/master/CODE_OF_CONDUCT.md).
+Bug reports and pull requests are welcome at https://github.com/memoxmrdl/obxcura.
 
 ## License
 
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
-
-## Code of Conduct
-
-Everyone interacting in the Obxcura project's codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/[USERNAME]/obxcura/blob/master/CODE_OF_CONDUCT.md).
+MIT. See [LICENSE.txt](LICENSE.txt).
