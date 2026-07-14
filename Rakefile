@@ -1,10 +1,16 @@
 # frozen_string_literal: true
 
 require "bundler/gem_tasks"
-require "minitest/test_task"
+require "rspec/core/rake_task"
+require "rubocop/rake_task"
+require "yard"
 
-Minitest::TestTask.create
+RSpec::Core::RakeTask.new(:spec)
+RuboCop::RakeTask.new
 
-require "standard/rake"
+# `rake doc` renders the YARD docs into doc/ (gitignored).
+YARD::Rake::YardocTask.new(:doc) do |t|
+  t.files = [ "lib/**/*.rb" ]
+end
 
-task default: %i[test standard]
+task default: %i[rubocop spec]
