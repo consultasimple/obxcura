@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-14
+
+### Fixed
+
+- Corrected gemspec repository URLs (`homepage`, `source_code_uri`,
+  `changelog_uri`) to point at the actual GitHub repository.
+
 ## [0.1.0] - 2026-07-09
 
 Initial release. A Ruby client that drives the Obscura headless browser over
