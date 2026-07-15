@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = "A small Ruby client for the Obscura headless browser over CDP."
   spec.description = "High-level Browser/Page API for driving h4ckf0r0day/obscura via the Chrome DevTools Protocol."
-  spec.homepage = "https://github.com/memoxmrdl/obxcura"
+  spec.homepage = "https://github.com/consultasimple/obxcura"
   spec.license = "MIT"
 
   spec.required_ruby_version = ">= 3.1"
