@@ -25,6 +25,46 @@ RSpec.describe Obxcura::Page, :obscura do
     expect(node["id"]).to eq("greeting")
   end
 
+  it "queries nested elements" do
+    page.goto(TestSite.url)
+
+    node = page.at_css("form")
+
+    expect(node.at_css("input")).to be_a(Obxcura::Node)
+  end
+
+  it "typing into a form control" do
+    page.goto(TestSite.url)
+    node = page.at_css("input")
+    node.type("Hello, world!")
+    expect(node.value).to eq("Hello, world!")
+  end
+
+  it "submitting a form" do
+    page.goto(TestSite.url)
+    node = page.at_css("form")
+    node.at_css("input").type("Hello, world!")
+    node.submit
+
+    expect(page.at_css("#done").text).to eq("ok")
+  end
+
+  it "focuses a node" do
+    page.goto(TestSite.url)
+    page.at_css("#username").focus
+    expect(page.evaluate("document.activeElement.id")).to eq("username")
+  end
+
+  it "returns a node's outer HTML" do
+    page.goto(TestSite.url)
+    expect(page.at_css("#greeting").outer_html).to eq('<h1 id="greeting">Hello Obxcura</h1>')
+  end
+
+  it "raises when submitting a node with no form" do
+    page.goto(TestSite.url)
+    expect { page.at_css("#greeting").submit }.to raise_error(Obxcura::ProtocolError, /no ancestor form/)
+  end
+
   it "returns nil for a missing selector" do
     page.goto(TestSite.url)
     expect(page.at_css("#nope")).to be_nil

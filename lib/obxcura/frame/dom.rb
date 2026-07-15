@@ -46,9 +46,8 @@ module Obxcura
           .filter_map { |stub| to_node(stub) }
       end
 
-      private
-
       # Resolve Obscura's serialized node stub ({"_nid"=>N,...}) into a Node.
+      # Public so {Node#at_css} can reuse the same resolution path.
       #
       # @param stub [Hash, nil] the serialized node from a querySelector call.
       # @return [Obxcura::Node, nil] a live node handle, or nil for a blank match.
