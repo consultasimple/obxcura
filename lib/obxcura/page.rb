@@ -67,7 +67,7 @@ module Obxcura
     # @return [Obxcura::Page, nil] the page, removed from the browser.
     def close
       @client.unsubscribe(@session_id)
-      @client.command("Network.clearBrowserCookies", { targetId: @target_id })
+      # @client.command("Network.clearBrowserCookies", { targetId: @target_id })
       @client.command("Target.closeTarget", { targetId: @target_id })
     rescue ProtocolError
       # Target already gone — nothing to do.

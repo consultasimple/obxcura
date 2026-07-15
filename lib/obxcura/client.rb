@@ -110,6 +110,7 @@ module Obxcura
       @closing = true
       @driver&.close
       @socket&.close
+      @subscribers.clear
       @reader&.kill
     rescue IOError, SystemCallError
       nil
