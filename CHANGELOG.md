@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-20
+
+### Added
+
+- `Node` form actions: `value`/`attribute`, `at_css` (scoped `querySelector`),
+  `focus`, `type` (sets value and fires `input`/`change`, since Obscura has no
+  Input domain), and `submit` (raising `ProtocolError` for a node with no form).
+- `Frame#to_node` is now public so `Node#at_css` reuses the same node
+  resolution.
+
 ## [0.1.1] - 2026-07-14
 
 ### Fixed
