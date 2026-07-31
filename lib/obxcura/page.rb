@@ -23,6 +23,12 @@ module Obxcura
   class Page
     extend Forwardable
 
+    # Seconds of slack given to the CDP reply beyond a {#post} timeout, so the
+    # in-page abort is what surfaces rather than the transport giving up first.
+    #
+    # @return [Integer]
+    TIMEOUT_HEADROOM = 5
+
     # @return [String] the CDP target id backing this page.
     # @return [String] the CDP session id attached to the target.
     # @return [Obxcura::Client] the shared CDP transport.
@@ -47,6 +53,21 @@ module Obxcura
       @network_mutex = Mutex.new
 
       @client.subscribe(@session_id) { |method, params| dispatch_event(method, params) }
+      command("Network.enable")
+    end
+
+    # Requests this page issued, oldest first, as
+    # `{ url:, request_id:, finished: }`.
+    #
+    # Scope is deliberately narrow: Obscura emits Network events for requests the
+    # *navigation* drives (the document and its subresources), but not for ones
+    # started from script. A {#post} — or any in-page `fetch`/`XMLHttpRequest` —
+    # therefore never shows up here. Verified against Obscura 0.1.11: enabling the
+    # Network domain and issuing a scripted POST produces no events at all.
+    #
+    # @return [Array<Hash>] a snapshot of the log, safe to iterate.
+    def network_log
+      @network_mutex.synchronize { @network_log.map(&:dup) }
     end
 
     # Navigate to `url` and block until the page's load event fires. Aliased as
@@ -105,49 +126,69 @@ module Obxcura
       @client.command(method, params, session_id: @session_id)
     end
 
-    # POST via XMLHttpRequest from the page context. Obscura routes XHR but not
-    # fetch, so this is the reliable POST path. All values cross as arguments,
-    # never interpolated into the JS. Returns { status, ok, body } on any HTTP
-    # reply (including 4xx/5xx). A transport failure — the request never reached
-    # the server (blocked by CORS / private-network SSRF guard, mixed origin, or
-    # a dead host) — raises ConnectionError instead of silently returning nil.
+    # POST from the page context via `fetch`. All values cross as arguments, never
+    # interpolated into the JS. Returns { status, ok, body } on any HTTP reply
+    # (including 4xx/5xx). A transport failure — the request never reached the
+    # server (blocked by CORS / private-network SSRF guard, mixed origin, or a
+    # dead host) — raises ConnectionError instead of silently returning nil.
     #
-    # `timeout` (seconds) bounds how long we wait for the reply. If the server
-    # accepts the connection but never answers the XHR (some anti-bot endpoints
-    # tarpit non-stealth clients), the wait ends with a TimeoutError that points
-    # at the likely cause. Note: Obscura ignores XMLHttpRequest#timeout, so the
-    # effective bound is this CDP-level one.
+    # `timeout` (seconds) is enforced in the page by racing the fetch against a
+    # timer, so a server that accepts the connection and never answers (some
+    # anti-bot endpoints tarpit non-stealth clients) fails in roughly `timeout`
+    # seconds instead of {Client::DEFAULT_TIMEOUT}. The CDP reply gets a little
+    # headroom past that so the in-page result is what we observe.
+    #
+    # The race is deliberate, and not the obvious `AbortSignal.timeout`. Obscura
+    # does accept an abort signal, but when the abort actually fires, the fetch
+    # rejection is swallowed and the call returns `undefined` — the same
+    # in-page-throws-vanish behaviour that makes {Frame::Runtime} use `{ error: }`
+    # sentinels. A rejection can't carry the reason across, so a resolved value
+    # has to. We still abort the underlying request once the timer wins, purely so
+    # it stops occupying the connection.
+    #
+    # Requests made here do not appear in {#network_log}; see that method.
     #
     # @param url [String] the URL to POST to.
     # @param payload [String] the raw request body.
     # @param content_type [String] the Content-Type header value.
     # @param headers [Hash{String=>String}] extra request headers.
-    # @param timeout [Integer, nil] seconds to wait for the reply.
+    # @param timeout [Integer, nil] seconds to allow before giving up.
     # @return [Hash] `{ "status" => Integer, "ok" => Boolean, "body" => String }`.
     # @raise [Obxcura::ConnectionError] if the request never reached the server.
     # @raise [Obxcura::TimeoutError] if the server accepts but never answers.
-    def xhr_post(url, payload, content_type, headers, timeout: nil)
-      result = evaluate_func(<<~JS, url, payload, content_type, headers, timeout:)
-        function(url, payload, contentType, headers) {
-          return new Promise((resolve) => {
-            const x = new XMLHttpRequest();
-            x.onreadystatechange = () => {
-              if (x.readyState === 4) {
-                resolve({ status: x.status, ok: x.status >= 200 && x.status < 300, body: x.responseText });
-              }
-            };
-            x.onerror = () => resolve({ error: "network error or request blocked (CORS / private network / mixed origin)" });
-            try {
-              x.open("POST", url, true);
-              x.setRequestHeader("Content-Type", contentType);
-              Object.keys(headers).forEach((k) => x.setRequestHeader(k, headers[k]));
-              x.send(payload);
-            } catch (e) {
-              resolve({ error: String(e) });
-            }
-          });
+    def post(url, payload, content_type, headers, timeout: nil)
+      timeout_ms = timeout && (timeout * 1000).to_i
+      result = evaluate_func(<<~JS, url, payload, content_type, headers, timeout_ms, timeout: timeout && timeout + TIMEOUT_HEADROOM)
+        function(url, payload, contentType, headers, timeoutMs) {
+          const controller = timeoutMs ? new AbortController() : null;
+          const init = {
+            method: "POST",
+            headers: Object.assign({ "Content-Type": contentType }, headers),
+            body: payload
+          };
+          if (controller) init.signal = controller.signal;
+
+          let timer = null;
+          const request = fetch(url, init)
+            .then((r) => r.text().then((body) => ({ status: r.status, ok: r.ok, body: body })))
+            .catch((e) => ({ error: String(e) }))
+            .then((outcome) => { if (timer) clearTimeout(timer); return outcome; });
+
+          if (!timeoutMs) return request;
+
+          return Promise.race([
+            request,
+            new Promise((resolve) => {
+              timer = setTimeout(() => {
+                if (controller) controller.abort();
+                resolve({ timeout: true });
+              }, timeoutMs);
+            })
+          ]);
         }
       JS
+
+      raise TimeoutError, timeout_message(url) if result.is_a?(Hash) && result["timeout"]
 
       if result.nil? || result["error"]
         reason = result&.dig("error") || "no response (request blocked or never settled)"
@@ -156,13 +197,18 @@ module Obxcura
 
       result
     rescue TimeoutError
-      raise TimeoutError,
-        "POST #{url} did not complete in time. The server accepted the connection " \
-        "but never answered the XHR — likely anti-bot tarpitting. Try submitting the " \
-        "real form with #type/#submit, run `obscura serve --stealth`, or pass a larger timeout:."
+      raise TimeoutError, timeout_message(url)
     end
+    # @deprecated Renamed to {#post} once Obscura started routing `fetch`.
+    alias_method :xhr_post, :post
 
     private
+
+    def timeout_message(url)
+      "POST #{url} did not complete in time. The server accepted the connection " \
+        "but never answered — likely anti-bot tarpitting. Try submitting the real " \
+        "form with #type/#submit, run `obscura serve --stealth`, or pass a larger timeout:."
+    end
 
     def dispatch_event(method, params)
       case method

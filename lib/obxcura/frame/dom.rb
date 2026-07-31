@@ -19,13 +19,12 @@ module Obxcura
         evaluate("document.title")
       end
 
-      # The live, post-JS HTML. Retrieved in chunks (see {Runtime#read_string})
-      # because a full page's outerHTML routinely exceeds Obscura's message limit.
-      # Aliased as `html`.
+      # The live, post-JS HTML, in a single round trip. Obscura's frame ceiling is
+      # 64 MiB, so even a very large document comes back whole. Aliased as `html`.
       #
       # @return [String] the rendered document's outer HTML.
       def body
-        read_string("document.documentElement.outerHTML")
+        evaluate("document.documentElement.outerHTML")
       end
       alias_method :html, :body
 

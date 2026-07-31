@@ -15,7 +15,7 @@ jobs:
     env:
       # Pin to a real release asset — confirm the tag + filename on the
       # h4ckf0r0day/obscura releases page before first green build.
-      OBSCURA_VERSION: "v0.1.9"
+      OBSCURA_VERSION: "v0.1.11"
       OBSCURA_ASSET: "obscura-x86_64-linux.tar.gz"
       OBSCURA_BIN: "${{ github.workspace }}/.obscura/obscura"
     steps:

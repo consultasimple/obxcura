@@ -4,5 +4,5 @@ module Obxcura
   # The gem's semantic version string.
   #
   # @return [String]
-  VERSION = "0.2.0"
+  VERSION = "0.3.0"
 end

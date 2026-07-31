@@ -40,6 +40,33 @@ RSpec.describe Obxcura::Page, :obscura do
     expect(node.value).to eq("Hello, world!")
   end
 
+  it "types through real key events, so keydown/input listeners fire" do
+    page.goto(TestSite.url)
+    page.evaluate(<<~JS)
+      (() => {
+        window.__types = [];
+        window.__keys = [];
+        const el = document.querySelector("#username");
+        [ "keydown", "keyup", "input" ].forEach((t) =>
+          el.addEventListener(t, () => window.__types.push(t)));
+        el.addEventListener("keydown", (e) => window.__keys.push(e.key));
+      })()
+    JS
+
+    page.at_css("#username").type("ab")
+
+    expect(page.evaluate("window.__types.join(',')")).to eq("keydown,input,keyup,keydown,input,keyup")
+    expect(page.evaluate("window.__keys.join('')")).to eq("ab")
+  end
+
+  it "appends when typing into a control that already has a value" do
+    page.goto(TestSite.url)
+    node = page.at_css("#username")
+    node.type("AB")
+    node.type("c")
+    expect(node.value).to eq("ABc")
+  end
+
   it "submitting a form" do
     page.goto(TestSite.url)
     node = page.at_css("form")
@@ -70,17 +97,43 @@ RSpec.describe Obxcura::Page, :obscura do
     expect(page.at_css("#nope")).to be_nil
   end
 
-  it "chunks large pages past Obscura's single-message ceiling" do
+  it "returns a multi-megabyte page in a single CDP message" do
     page.goto(TestSite.url("/big"))
     expect(page.html.bytesize).to be > 1_000_000
     expect(page.html).to include("</html>")
   end
 
-  describe "#xhr_post" do
+  it "round-trips a string far past the old ~700KB ceiling" do
+    page.goto(TestSite.url)
+    length = page.evaluate("(window.__big = 'y'.repeat(8 * 1024 * 1024)).length")
+
+    expect(page.evaluate("window.__big").length).to eq(length)
+  end
+
+  describe "#network_log" do
+    it "records requests the navigation itself issued" do
+      page.goto(TestSite.url)
+
+      expect(page.network_log).to include(a_hash_including(url: TestSite.url, finished: true))
+    end
+
+    it "starts empty and stays scoped to the page that navigated" do
+      other = browser.create_page
+      page.goto(TestSite.url)
+
+      expect(other.network_log).to be_empty
+    end
+  end
+
+  describe "#post" do
     before { page.goto(TestSite.url) }
 
+    it "is still reachable under the deprecated xhr_post name" do
+      expect(page.xhr_post(TestSite.url("/echo"), "q=hi", "text/plain", {})["status"]).to eq(200)
+    end
+
     it "sends the payload, content type and headers, and returns the response" do
-      result = page.xhr_post(TestSite.url("/echo"), "q=hi", "application/x-www-form-urlencoded", { "X-Test" => "42" })
+      result = page.post(TestSite.url("/echo"), "q=hi", "application/x-www-form-urlencoded", { "X-Test" => "42" })
 
       expect(result["status"]).to eq(200)
       expect(result["ok"]).to be(true)
@@ -93,25 +146,31 @@ RSpec.describe Obxcura::Page, :obscura do
     end
 
     it "returns ok:false on an HTTP error status without raising" do
-      result = page.xhr_post(TestSite.url("/boom"), "q=hi", "application/x-www-form-urlencoded", {})
+      result = page.post(TestSite.url("/boom"), "q=hi", "application/x-www-form-urlencoded", {})
 
       expect(result["status"]).to eq(500)
       expect(result["ok"]).to be(false)
     end
 
     it "raises ConnectionError when the request can't reach the server" do
-      expect { page.xhr_post("http://127.0.0.1:1/nope", "", "application/json", {}) }
+      expect { page.post("http://127.0.0.1:1/nope", "", "application/json", {}) }
         .to raise_error(Obxcura::ConnectionError)
     end
 
-    it "raises TimeoutError when the server accepts but never answers" do
+    it "times out in the page when the server accepts but never answers" do
       tarpit = TCPServer.new("127.0.0.1", 0)
       held = []
       accepter = Thread.new { loop { held << tarpit.accept } }
       url = "http://127.0.0.1:#{tarpit.addr[1]}/"
 
-      expect { page.xhr_post(url, "q=1", "application/x-www-form-urlencoded", {}, timeout: 2) }
+      started = Time.now
+      expect { page.post(url, "q=1", "application/x-www-form-urlencoded", {}, timeout: 2) }
         .to raise_error(Obxcura::TimeoutError, /did not complete in time/)
+
+      # The in-page timer wins the race, so we give up at roughly `timeout:`
+      # rather than sitting out the CDP reply timeout — all the old XHR path
+      # could do, since Obscura ignores XMLHttpRequest#timeout.
+      expect(Time.now - started).to be < Obxcura::Client::DEFAULT_TIMEOUT
     ensure
       accepter&.kill
       held&.each(&:close)

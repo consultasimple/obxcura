@@ -82,6 +82,20 @@ module Obxcura
       JSON.parse(Net::HTTP.get(uri))
     end
 
+    # Drop every cookie held on this connection.
+    #
+    # Since Obscura 0.1.11 each connection owns its own browser context, so cookies
+    # no longer leak between `Browser` instances and this is only about resetting
+    # state *within* one connection — between logical sessions on the same socket,
+    # say. `obscura serve` is still long-lived and {#quit} only drops the socket, so
+    # a fresh `Browser` is the other way to get a clean jar.
+    #
+    # @return [void]
+    def clear_cookies
+      command("Network.clearBrowserCookies")
+      nil
+    end
+
     # Stop tracking a page. Called by {Obxcura::Page#close}.
     #
     # @param page [Obxcura::Page] the page to forget.
