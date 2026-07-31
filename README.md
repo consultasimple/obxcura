@@ -70,11 +70,11 @@ JS
 
 ### POSTing from inside the page
 
-Obscura routes `XMLHttpRequest` but not `fetch`, so `#xhr_post` runs the POST
-from the page's context (reusing its cookies). Values cross as arguments:
+`#post` runs the POST from the page's context with `fetch`, reusing its cookies.
+Values cross as arguments:
 
 ```ruby
-result = page.xhr_post(
+result = page.post(
   "https://example.com/api/login",
   URI.encode_www_form(user: "me", pass: "secret"),   # payload
   "application/x-www-form-urlencoded",                # content type
@@ -91,24 +91,27 @@ A transport failure — the request never reached the server (CORS, the
 private-network SSRF guard, mixed origin, a dead host) — raises
 `Obxcura::ConnectionError`. If the server accepts the connection but never
 answers, the wait ends with `Obxcura::TimeoutError`; pass `timeout:` (seconds)
-to bound it. Some anti-bot endpoints tarpit non-stealth clients — try
-`obscura serve --stealth`.
+to bound it, and the request is dropped in the page at roughly that mark. Some
+anti-bot endpoints tarpit non-stealth clients — try `obscura serve --stealth`.
+
+> Before Obscura 0.1.11 this had to use `XMLHttpRequest`, because `fetch` wasn't
+> routed. The old name `#xhr_post` still works as a deprecated alias.
 
 ## API
 
 `Obxcura.start(**opts)` is sugar for `Obxcura::Browser.new`.
 
 - **`Obxcura::Browser`** — `.new(host:, port:, timeout:)`, `#create_page(url)`,
-  `#go_to`/`#goto`, `#targets`, `#version`, `#command`, `#close`/`#quit`.
-  Readers: `#client`, `#pages`, `#host`, `#port`.
+  `#go_to`/`#goto`, `#targets`, `#version`, `#clear_cookies`, `#command`,
+  `#close`/`#quit`. Readers: `#client`, `#pages`, `#host`, `#port`.
 - **`Obxcura::Page`** — `#goto`/`#go_to`, `#evaluate`, `#evaluate_func`,
-  `#html`/`#body`, `#title`, `#current_url`, `#at_css`, `#css`, `#xhr_post`,
-  `#cookies`, `#refresh`/`#reload`, `#command`, `#close`, `#close_connection`.
-  Readers: `#frame`, `#target_id`, `#session_id`, `#client`.
-- **`Obxcura::Node`** (from `#at_css`/`#css`) — `#text`, `#[]` (attribute),
-  `#outer_html`, `#object_id`.
+  `#html`/`#body`, `#title`, `#current_url`, `#at_css`, `#css`, `#post`,
+  `#cookies`, `#network_log`, `#refresh`/`#reload`, `#command`, `#close`,
+  `#close_connection`. Readers: `#frame`, `#target_id`, `#session_id`, `#client`.
+- **`Obxcura::Node`** (from `#at_css`/`#css`) — `#text`, `#value`, `#[]`
+  (attribute), `#at_css`, `#focus`, `#type`, `#submit`, `#outer_html`.
 - **`Obxcura::Frame`** — the main frame behind a Page; carries the DOM/Runtime
-  methods Page delegates (`#evaluate`, `#at_css`, `#read_string`, …).
+  methods Page delegates (`#evaluate`, `#at_css`, `#call_on`, …).
 - **`Obxcura::Client`** — the CDP transport, if you need raw `#command`,
   `#subscribe` / `#unsubscribe`, or `#close`.
 
@@ -122,21 +125,29 @@ API, so they're worth knowing:
 
 - **No paint engine.** There is no screenshot API, and there never will be one
   here. `Page.captureScreenshot` is unusable.
-- **~500–700 KB message ceiling.** Obscura won't send a single CDP message
-  larger than that. `Page#html` works around it by snapshotting `outerHTML` into
-  a page global and pulling it back in 400 KB slices. Don't return giant values
-  from `#evaluate` directly.
 - **DOM nodes don't serialize.** A node returned by value comes back as an
   internal stub, so `#at_css` / `#css` resolve it (via `DOM.resolveNode`) to a
   live handle and read it with `Runtime.callFunctionOn`.
-- **XHR, not fetch.** Obscura routes `XMLHttpRequest` but not `fetch`, so
-  `#xhr_post` uses XHR from the page context. It also ignores
-  `XMLHttpRequest#timeout`, so the effective bound is the CDP-level `timeout:`.
-- **Persistent cookies.** `obscura serve` is long-lived and its cookie jar
-  survives `#quit` (that only drops the WebSocket). Read them with
-  `page.cookies`; closing a page clears the browser's cookie jar.
+- **In-page throws vanish.** A JS `throw` comes back as `undefined` rather than
+  an exception, so the gem returns `{ error: ... }` sentinels and raises from
+  Ruby. It's also why `#post` bounds itself by racing a timer instead of using
+  `AbortSignal.timeout` — the abort works, but its rejection doesn't survive the
+  trip, so the reason has to come back as a resolved value.
+- **The network log only sees navigation.** `#network_log` records the document
+  and its subresources. Script-initiated requests — including `#post` — emit no
+  CDP network events at all, so they never appear.
+- **No bulk text insertion.** `Input.insertText` isn't implemented, so `#type`
+  dispatches one key event per character via `Input.dispatchKeyEvent`. Real
+  `keydown`/`input`/`keyup` fire; `change` does not, matching browsers, which
+  only fire it on blur.
 - **Private networks are blocked by default.** To drive a local site, start the
   browser with `obscura serve --allow-private-network`.
+
+Two long-standing limits were lifted in Obscura 0.1.11, so if you've read older
+notes: the **~500–700 KB message ceiling is gone** (64 MiB now, so `#html`
+returns even a huge document in one round trip), and **cookies no longer leak
+between connections** — each `Browser` gets its own browser context, and
+`#clear_cookies` is now only about resetting state within one connection.
 
 The transport is built directly on `websocket-driver` rather than
 `websocket-client-simple`, which reads a byte at a time and wedges on large

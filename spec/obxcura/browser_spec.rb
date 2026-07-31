@@ -25,4 +25,27 @@ RSpec.describe Obxcura::Browser, :obscura do
   it "raises ConnectionError when nothing is listening" do
     expect { described_class.new(port: 1) }.to raise_error(Obxcura::ConnectionError)
   end
+
+  it "drops cookies set on this connection via #clear_cookies" do
+    page = browser.go_to(TestSite.url)
+    page.evaluate("document.cookie = 'probe=1; path=/'")
+    expect(page.evaluate("document.cookie")).to include("probe=1")
+
+    browser.clear_cookies
+    page.refresh
+
+    expect(page.evaluate("document.cookie")).not_to include("probe=1")
+  end
+
+  it "does not leak cookies into a separate connection" do
+    page = browser.go_to(TestSite.url)
+    page.evaluate("document.cookie = 'leaky=1; path=/'")
+
+    other = described_class.new(port: ObscuraServer.port)
+    begin
+      expect(other.go_to(TestSite.url).evaluate("document.cookie")).not_to include("leaky=1")
+    ensure
+      other.quit
+    end
+  end
 end

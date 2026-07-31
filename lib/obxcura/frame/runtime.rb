@@ -10,13 +10,6 @@ module Obxcura
     # being string-interpolated into source. Node-handle resolution, cyclic-node
     # detection and a retry loop are deliberately left out.
     module Runtime
-      # Obscura won't send a single CDP message larger than ~500-700KB, so we pull
-      # large strings back in slices this size and stitch them together. Well under
-      # the ceiling, and each slice is fast over the websocket-driver transport.
-      #
-      # @return [Integer] slice size (bytes) used by {#read_string}.
-      EVALUATE_CHUNK = 400_000
-
       # Evaluate a JS expression and return its value (awaits promises).
       #
       # Extra args are passed to the page as real values, reachable in the
@@ -73,25 +66,6 @@ module Obxcura
           },
           timeout: timeout
         ))
-      end
-
-      # Pull a possibly-large JS string back in {EVALUATE_CHUNK}-sized slices. The
-      # expression is snapshotted into a page global once, so it's evaluated a
-      # single time no matter how big the result is; we then slice that global.
-      #
-      # @param js_expression [String] a JS expression producing a string.
-      # @return [String] the full string, reassembled from slices.
-      def read_string(js_expression)
-        length = evaluate("(window.__obxcura_read = String(#{js_expression})).length").to_i
-        return "" if length.zero?
-
-        buffer = String.new(capacity: length)
-        offset = 0
-        while offset < length
-          buffer << evaluate("window.__obxcura_read.slice(#{offset}, #{offset + EVALUATE_CHUNK})")
-          offset += EVALUATE_CHUNK
-        end
-        buffer
       end
 
       private

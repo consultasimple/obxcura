@@ -25,17 +25,20 @@ module Obxcura
     # @return [Integer] default seconds to wait for a command reply.
     DEFAULT_TIMEOUT = 30
 
-    # Obscura frames stay well under this; it's just a guard against a runaway
-    # allocation — a sane cap on the receive size.
+    # Matches Obscura's own 64 MiB frame ceiling, so anything the browser is
+    # willing to send, the driver is willing to assemble.
     #
     # @return [Integer] largest CDP frame (bytes) the driver will assemble.
     MAX_MESSAGE_SIZE = 64 * 1024 * 1024
 
-    # Bytes pulled per read syscall. Small is fine — the driver reassembles
-    # frames across reads; this only bounds how much we buffer at once.
+    # Bytes pulled per read syscall. This has to be large: since Obscura raised
+    # its frame ceiling to 64 MiB, multi-megabyte replies are routine, and a
+    # small value turns one reply into tens of thousands of syscalls. Measured
+    # on a 16 MiB reply: 512B → 0.188s, 64KiB → 0.105s. Past 64KiB the curve
+    # flattens, so the extra buffer buys nothing.
     #
     # @return [Integer]
-    READ_CHUNK = 512
+    READ_CHUNK = 64 * 1024
 
     # @return [String] the WebSocket URL of the browser endpoint.
     attr_reader :url

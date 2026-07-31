@@ -51,28 +51,42 @@ module Obxcura
       tap { @frame.page.command("DOM.focus", objectId: remote_object_id) }
     end
 
-    # Type text into this node. Obscura has no Input domain (Input.insertText /
-    # dispatchKeyEvent are unimplemented), so this sets `value` in page context
-    # and fires the `input`/`change` events real typing would, letting listeners
-    # react. Appends, matching keyboard behaviour when the node already has text.
+    # Type text into this node with real key events, one character at a time —
+    # Obscura implements `Input.dispatchKeyEvent`, so the browser itself performs
+    # the insertion and fires `keydown`, `input` and `keyup` the way a keyboard
+    # would. Focuses the node first, since key events go to the active element.
+    # Appends, matching keyboard behaviour when the node already has text.
+    #
+    # Note `change` does *not* fire per keystroke — real browsers only fire it on
+    # blur. The previous implementation synthesized both by assigning `value`
+    # directly; listeners that relied on that `change` need to react to `input`.
+    #
+    # `Input.insertText` is still unimplemented in Obscura 0.1.11, so there is no
+    # bulk-insert fast path: this costs two CDP round trips per character. Fine for
+    # form fields (100 chars ≈ 40ms), but it is genuinely slower than the old
+    # single-assignment approach — 500 chars ≈ 0.11s — so don't use it to stuff
+    # large text through. Assign `value` via {Frame::Runtime#call_on} for that, and
+    # accept that no key events fire.
     #
     # @param keys [Array<String>] text fragments to type (joined).
     # @return [self]
     def type(*keys)
-      tap { @frame.call_on(remote_object_id, <<~JS, [ keys.join ])
-        function(text) {
-          this.value = (this.value || "") + text;
-          this.dispatchEvent(new Event("input", { bubbles: true }));
-          this.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-      JS
-      }
+      focus
+      keys.join.each_char do |char|
+        dispatch_key("keyDown", char, text: char)
+        dispatch_key("keyUp", char)
+      end
+      self
     end
 
     # Submit this node's form. Works whether the node is the `<form>` itself or a
-    # control inside one (resolved via `.form` / closest `<form>`). Prefers
-    # `requestSubmit` (runs validation and fires the submit event) and falls back
-    # to `submit` where it's unavailable.
+    # control inside one (resolved via `.form` / closest `<form>`).
+    #
+    # Always goes through `requestSubmit`, which follows the interactive path:
+    # constraint validation runs and a cancelable `submit` event fires. There is no
+    # fallback to `submit()` — as of Obscura 0.1.11 the two genuinely differ, with
+    # `submit()` bypassing the submit event entirely, so falling back would quietly
+    # skip both validation and any listener a caller registered.
     #
     # @return [self]
     # @raise [Obxcura::ProtocolError] if the node isn't a form or inside one.
@@ -81,7 +95,7 @@ module Obxcura
         function() {
           const form = this.tagName === "FORM" ? this : (this.form || this.closest("form"));
           if (!form) return { error: "node is not a form and has no ancestor form" };
-          form.requestSubmit ? form.requestSubmit() : form.submit();
+          form.requestSubmit();
         }
       JS
       raise ProtocolError, result["error"] if result.is_a?(Hash) && result["error"]
@@ -92,6 +106,16 @@ module Obxcura
     # @return [String] the node's serialized outer HTML.
     def outer_html
       @frame.call_on(remote_object_id, "function() { return this.outerHTML; }")
+    end
+
+    private
+
+    # `code` is deliberately left off: it describes a physical key, which we can't
+    # infer from a character, and Obscura keys insertion off `text` anyway.
+    def dispatch_key(type, char, text: nil)
+      params = { type: type, key: char }
+      params[:text] = text if text
+      @frame.page.command("Input.dispatchKeyEvent", params)
     end
   end
 end
