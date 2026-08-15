@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -15,8 +15,13 @@ jobs:
     env:
       # Pin to a real release asset — confirm the tag + filename on the
       # h4ckf0r0day/obscura releases page before first green build.
-      OBSCURA_VERSION: "v0.1.11"
-      OBSCURA_ASSET: "obscura-x86_64-linux.tar.gz"
+      #
+      # 0.2.0 ships four builds per platform; the unsuffixed one carries the new
+      # native render engine. Nothing here renders, so we take -no-render: it is
+      # the smaller download and keeps the lightweight automation config. Move to
+      # the unsuffixed asset if a spec ever needs Page.captureScreenshot.
+      OBSCURA_VERSION: "v0.2.0"
+      OBSCURA_ASSET: "obscura-x86_64-linux-no-render.tar.gz"
       OBSCURA_BIN: "${{ github.workspace }}/.obscura/obscura"
     steps:
       - uses: actions/checkout@v4
