@@ -32,4 +32,14 @@ RSpec.configure do |config|
       skip "Obscura binary not found — set OBSCURA_BIN or put `obscura` on PATH"
     end
   end
+
+  # Screenshots need a build carrying the render feature; the -no-render
+  # archives of the same version answer Page.captureScreenshot with a refusal.
+  config.around(:each, :render) do |example|
+    if browser_available && ObscuraServer.render?
+      example.run
+    else
+      skip "Obscura build has no render feature — use the unsuffixed release asset"
+    end
+  end
 end

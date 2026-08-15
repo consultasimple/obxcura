@@ -41,6 +41,25 @@ module ObscuraServer
     @port
   end
 
+  # Whether the running binary was built with the render feature.
+  #
+  # 0.2.0 ships render and no-render builds of the same version, so `--version`
+  # cannot tell them apart — the only honest answer is to ask the browser to
+  # take a screenshot and see whether it refuses. Requires {boot} first.
+  def render?
+    return @render unless @render.nil?
+
+    browser = Obxcura::Browser.new(port: port)
+    begin
+      browser.create_page.command("Page.captureScreenshot", format: "png")
+      @render = true
+    rescue Obxcura::ProtocolError
+      @render = false
+    ensure
+      browser.quit
+    end
+  end
+
   def free_port
     server = TCPServer.new("127.0.0.1", 0)
     port = server.addr[1]
