@@ -1,5 +1,33 @@
 ## [Unreleased]
 
+### Added
+
+- **`Page#screenshot`** — real rasterisation, now that Obscura 0.2.0 ships a
+  native render engine. Returns the raw image bytes (base64 is a CDP transport
+  detail and is decoded here), or writes them and returns the path when given
+  `path:`. Supports `:png` / `:jpeg` / `:webp`, `quality:` for `:jpeg`,
+  `full_page:` for the whole document, and `clip:` for a region with optional
+  `scale:`. Format is inferred from the `path:` extension when not given.
+
+  Every option was verified against the 0.2.0 binary: `full_page:` really does
+  capture past the viewport (1280x720 → 1280x2400 on the test page), `clip:` with
+  `scale: 2` really doubles the raster, and `quality:` really changes the jpeg
+  encode. Obscura's webp encoder is lossless and rejects `quality:` at any value,
+  so that combination is refused client-side rather than round-tripped.
+
+  Requires a build carrying the render feature. The `-no-render` archives of the
+  same version refuse `Page.captureScreenshot`; that refusal surfaces as an
+  `Obxcura::Error` naming the asset to install, not a bare `ProtocolError`.
+  Unsupported formats and contradictory options (`full_page:` with `clip:`) raise
+  `ArgumentError` before any CDP round trip.
+
+### Changed
+
+- CI pins Obscura `v0.2.0` and now installs the **render** build, since the
+  screenshot specs would otherwise skip rather than fail. It also triggered on
+  pushes to `master` while the default branch is `main`, so the push trigger
+  could never fire; both are fixed.
+
 ## [0.3.0] - 2026-07-29
 
 Realigns the client with Obscura 0.1.11, which lifted several of the browser

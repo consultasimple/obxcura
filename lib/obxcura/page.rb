@@ -11,14 +11,13 @@ module Obxcura
   # {Frame::Runtime}), and Page delegates those (`#evaluate`, `#html`, `#title`,
   # `#at_css`, ...).
   #
-  # Obscura has no paint engine, so there is deliberately no screenshot API.
-  #
   # @example
   #   page = browser.create_page
   #   page.goto("https://example.com")
   #   page.html                 # rendered DOM after JS
   #   page.title                # "Example Domain"
   #   page.at_css("h1").text    # => "Example Domain"
+  #   page.screenshot(path: "example.png")
   #   page.close
   class Page
     extend Forwardable
@@ -28,6 +27,19 @@ module Obxcura
     #
     # @return [Integer]
     TIMEOUT_HEADROOM = 5
+
+    # Image formats Obscura's render engine will encode.
+    #
+    # @return [Array<Symbol>]
+    SCREENSHOT_FORMATS = %i[png jpeg webp].freeze
+
+    # File extensions mapped to a {SCREENSHOT_FORMATS} entry, so `path:` alone
+    # can pick the encoder.
+    #
+    # @return [Hash{String=>Symbol}]
+    SCREENSHOT_EXTENSIONS = {
+      ".png" => :png, ".jpg" => :jpeg, ".jpeg" => :jpeg, ".webp" => :webp
+    }.freeze
 
     # @return [String] the CDP target id backing this page.
     # @return [String] the CDP session id attached to the target.
@@ -202,7 +214,107 @@ module Obxcura
     # @deprecated Renamed to {#post} once Obscura started routing `fetch`.
     alias_method :xhr_post, :post
 
+    # Capture the page as an image.
+    #
+    # Obscura gained a paint engine in 0.2.0, so this is real rasterisation
+    # rather than a serialised DOM. It needs a build carrying the render
+    # feature: the `-no-render` archives of the *same version* refuse
+    # `Page.captureScreenshot`, and that refusal is re-raised here as an
+    # {Obxcura::Error} naming the fix rather than a bare {ProtocolError}.
+    #
+    # Returns the raw image bytes (BINARY encoding). Base64 is a transport
+    # detail of CDP and is decoded here, so callers get something they can write
+    # to disk or hand to an image library directly. With `path:` the bytes are
+    # written for you and the path comes back instead.
+    #
+    # @example Whole document, not just the viewport
+    #   page.screenshot(path: "full.png", full_page: true)
+    #
+    # @example A region, at twice the pixel density
+    #   page.screenshot(clip: { x: 0, y: 0, width: 300, height: 200, scale: 2 })
+    #
+    # @param path [String, nil] write the image here and return this path.
+    # @param format [Symbol, String, nil] `:png`, `:jpeg` or `:webp`. Defaults to
+    #   the format implied by `path`'s extension, then to `:png`.
+    # @param quality [Integer, nil] 0..100, `:jpeg` only. Rejected for `:png`,
+    #   which ignores it, and for `:webp`, whose Obscura encoder is lossless and
+    #   refuses the parameter outright.
+    # @param full_page [Boolean] capture the whole document rather than the
+    #   viewport. Mutually exclusive with `clip`.
+    # @param clip [Hash, nil] region to capture: `x:`, `y:`, `width:`, `height:`
+    #   and an optional `scale:` (default 1).
+    # @return [String] the image bytes, or `path` when one was given.
+    # @raise [ArgumentError] on an unsupported format or contradictory options,
+    #   before any CDP round trip.
+    # @raise [Obxcura::Error] if the browser has no render feature.
+    def screenshot(path: nil, format: nil, quality: nil, full_page: false, clip: nil)
+      format = resolve_screenshot_format(format, path)
+      validate_screenshot!(format, quality, full_page, clip)
+
+      params = { format: format.to_s }
+      params[:quality] = quality if quality
+      params[:captureBeyondViewport] = true if full_page
+      params[:clip] = normalize_clip(clip) if clip
+
+      image = decode_image(command("Page.captureScreenshot", params)["data"])
+      return image unless path
+
+      File.binwrite(path, image)
+      path
+    rescue ProtocolError => e
+      raise unless e.message.include?("render feature")
+
+      raise Error, "This Obscura build has no render engine, so it cannot take screenshots. " \
+        "Install the unsuffixed release asset (the `-no-render` ones omit it)."
+    end
+
     private
+
+    def resolve_screenshot_format(format, path)
+      return format.to_sym if format
+      return :png unless path
+
+      SCREENSHOT_EXTENSIONS.fetch(File.extname(path).downcase, :png)
+    end
+
+    def validate_screenshot!(format, quality, full_page, clip)
+      unless SCREENSHOT_FORMATS.include?(format)
+        raise ArgumentError,
+          "unsupported screenshot format #{format.inspect} — use one of #{SCREENSHOT_FORMATS.join(', ')}"
+      end
+
+      raise ArgumentError, "full_page and clip contradict each other — pass one or the other" if full_page && clip
+
+      return if quality.nil?
+
+      unless format == :jpeg
+        raise ArgumentError,
+          "quality applies to :jpeg only — :png ignores it, and Obscura's :webp encoder is lossless"
+      end
+
+      raise ArgumentError, "quality must be between 0 and 100, got #{quality}" unless (0..100).cover?(quality)
+    end
+
+    def normalize_clip(clip)
+      width = clip[:width] || clip["width"]
+      height = clip[:height] || clip["height"]
+      raise ArgumentError, "clip needs both width and height" unless width && height
+
+      {
+        x: clip[:x] || clip["x"] || 0,
+        y: clip[:y] || clip["y"] || 0,
+        width: width,
+        height: height,
+        scale: clip[:scale] || clip["scale"] || 1
+      }
+    end
+
+    # CDP hands images back as base64. `unpack1("m")` decodes leniently and
+    # returns BINARY, and — unlike the base64 library — needs no require, which
+    # matters since base64 left the default gems in Ruby 3.4.
+    def decode_image(data)
+      data.to_s.unpack1("m")
+    end
 
     def timeout_message(url)
       "POST #{url} did not complete in time. The server accepted the connection " \

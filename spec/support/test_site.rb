@@ -12,7 +12,14 @@ module TestSite
            "<input type=\"text\" name=\"username\" id=\"username\"><button type=\"submit\">Go</button></form>" \
            "</body></html>",
     "/big" => "<!doctype html><html><body><div>#{"x" * 1_200_000}</div></body></html>",
-    "/submit" => "<!doctype html><html><body id=\"done\">ok</body></html>"
+    "/submit" => "<!doctype html><html><body id=\"done\">ok</body></html>",
+    # Deliberately taller than the 720px viewport, with a solid block of known
+    # size in the top-left corner, so screenshot specs can tell a viewport
+    # capture from a full-page one and can assert on a clipped region.
+    "/tall" => "<!doctype html><html><head><title>Tall</title>" \
+               "<style>body{margin:0}#block{width:300px;height:200px;background:#f00}" \
+               "#rest{height:2000px;background:linear-gradient(#00f,#0f0)}</style></head>" \
+               "<body><div id=\"block\"></div><div id=\"rest\"></div></body></html>"
   }.freeze
 
   module_function

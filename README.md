@@ -97,6 +97,25 @@ anti-bot endpoints tarpit non-stealth clients — try `obscura serve --stealth`.
 > Before Obscura 0.1.11 this had to use `XMLHttpRequest`, because `fetch` wasn't
 > routed. The old name `#xhr_post` still works as a deprecated alias.
 
+### Screenshots
+
+```ruby
+page.screenshot                                  # => raw PNG bytes
+page.screenshot(path: "shot.png")                # writes the file, returns the path
+page.screenshot(path: "shot.jpg", quality: 80)   # format inferred from the extension
+page.screenshot(full_page: true)                 # whole document, not just the viewport
+page.screenshot(clip: { x: 0, y: 0, width: 300, height: 200, scale: 2 })
+```
+
+Formats are `:png` (default), `:jpeg` and `:webp`. `quality:` is 0–100 and applies
+to **`:jpeg` only** — `:png` ignores it, and Obscura's webp encoder is lossless and
+refuses the parameter at any value. Without `path:` you get the image bytes back —
+base64 is a CDP transport detail and is decoded for you.
+
+> Requires Obscura 0.2.0 or newer, **and** a build with the render feature. The
+> `-no-render` release archives refuse to rasterise, and `#screenshot` reports
+> that as an `Obxcura::Error` rather than a raw protocol failure.
+
 ## API
 
 `Obxcura.start(**opts)` is sugar for `Obxcura::Browser.new`.
@@ -106,8 +125,9 @@ anti-bot endpoints tarpit non-stealth clients — try `obscura serve --stealth`.
   `#close`/`#quit`. Readers: `#client`, `#pages`, `#host`, `#port`.
 - **`Obxcura::Page`** — `#goto`/`#go_to`, `#evaluate`, `#evaluate_func`,
   `#html`/`#body`, `#title`, `#current_url`, `#at_css`, `#css`, `#post`,
-  `#cookies`, `#network_log`, `#refresh`/`#reload`, `#command`, `#close`,
-  `#close_connection`. Readers: `#frame`, `#target_id`, `#session_id`, `#client`.
+  `#screenshot`, `#cookies`, `#network_log`, `#refresh`/`#reload`, `#command`,
+  `#close`, `#close_connection`. Readers: `#frame`, `#target_id`, `#session_id`,
+  `#client`.
 - **`Obxcura::Node`** (from `#at_css`/`#css`) — `#text`, `#value`, `#[]`
   (attribute), `#at_css`, `#focus`, `#type`, `#submit`, `#outer_html`.
 - **`Obxcura::Frame`** — the main frame behind a Page; carries the DOM/Runtime
@@ -123,8 +143,11 @@ Errors all descend from `Obxcura::Error`: `TimeoutError`, `ProtocolError`,
 These are properties of the **Obscura browser**, not of this gem. They shape the
 API, so they're worth knowing:
 
-- **No paint engine.** There is no screenshot API, and there never will be one
-  here. `Page.captureScreenshot` is unusable.
+- **Screenshots need a render build.** Obscura gained a paint engine in 0.2.0,
+  but the `-no-render` release archives of the *same version* omit it and refuse
+  `Page.captureScreenshot`. `#screenshot` turns that refusal into an
+  `Obxcura::Error` telling you which asset to install. (Before 0.2.0 there was no
+  paint engine at all, and this gem deliberately had no screenshot API.)
 - **DOM nodes don't serialize.** A node returned by value comes back as an
   internal stub, so `#at_css` / `#css` resolve it (via `DOM.resolveNode`) to a
   live handle and read it with `Runtime.callFunctionOn`.
