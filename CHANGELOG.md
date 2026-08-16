@@ -2,6 +2,30 @@
 
 ### Added
 
+- **`Page#pdf`** — print the page, now that Obscura 0.2.0 can. Returns the raw
+  PDF bytes, or writes them and returns the path with `path:`. Supports
+  `landscape:`, `print_background:`, `scale:` (0.1..2.0), `page_ranges:`,
+  `margin:` (one number or per side, in inches), and paper as either a name
+  (`:letter`, `:legal`, `:tabloid`, `:a3`, `:a4`, `:a5`) or explicit
+  `paper_width:`/`paper_height:` in inches.
+
+  Verified against the binary by reading the generated PDFs, not by trusting
+  byte sizes — an A4 render of the test page weighs *exactly* as much as the
+  Letter one, so only the `/MediaBox` reveals that paper size applied at all
+  (612x792pt vs 595x842pt). Landscape swaps the box, `scale:` changes the page
+  count, and `page_ranges:` trims it.
+
+  **Output is raster-backed.** Obscura reports `print-media-raster`, and a
+  generated document has zero font objects and no extractable text — measured.
+  It cannot be searched, selected, or read by a screen reader; use `#html` when
+  you need the text. Header/footer rendering and CSS `@page` sizing are not
+  implemented upstream, so those options are deliberately not exposed.
+
+  Needs a build with the render feature, like `#screenshot`; the same refusal is
+  mapped to an `Obxcura::Error` naming the asset to install. An unknown paper
+  name, `paper:` combined with explicit dimensions, and a `scale:` outside
+  0.1..2.0 all raise `ArgumentError` before any CDP round trip.
+
 - **`Page#screenshot`** — real rasterisation, now that Obscura 0.2.0 ships a
   native render engine. Returns the raw image bytes (base64 is a CDP transport
   detail and is decoded here), or writes them and returns the path when given
