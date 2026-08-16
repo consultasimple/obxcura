@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "obscura": {
-      "command": "/usr/local/bin/obscura",
-      "args": ["mcp", "--stealth"]
-    }
-  }
-}

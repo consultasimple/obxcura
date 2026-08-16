@@ -41,6 +41,23 @@ module Obxcura
       ".png" => :png, ".jpg" => :jpeg, ".jpeg" => :jpeg, ".webp" => :webp
     }.freeze
 
+    # Named paper sizes for {#pdf}, as `[width, height]` in inches.
+    #
+    # @return [Hash{Symbol=>Array<Float>}]
+    PDF_PAPER_SIZES = {
+      letter: [ 8.5, 11.0 ],
+      legal: [ 8.5, 14.0 ],
+      tabloid: [ 11.0, 17.0 ],
+      a3: [ 11.7, 16.54 ],
+      a4: [ 8.27, 11.69 ],
+      a5: [ 5.83, 8.27 ]
+    }.freeze
+
+    # Scale factors Obscura will accept for {#pdf}.
+    #
+    # @return [Range]
+    PDF_SCALE_RANGE = (0.1..2.0)
+
     # @return [String] the CDP target id backing this page.
     # @return [String] the CDP session id attached to the target.
     # @return [Obxcura::Client] the shared CDP transport.
@@ -256,19 +273,110 @@ module Obxcura
       params[:captureBeyondViewport] = true if full_page
       params[:clip] = normalize_clip(clip) if clip
 
-      image = decode_image(command("Page.captureScreenshot", params)["data"])
+      image = decode_payload(command("Page.captureScreenshot", params)["data"])
       return image unless path
 
       File.binwrite(path, image)
       path
     rescue ProtocolError => e
-      raise unless e.message.include?("render feature")
+      raise_unless_render_missing(e, "take screenshots")
+    end
 
-      raise Error, "This Obscura build has no render engine, so it cannot take screenshots. " \
-        "Install the unsuffixed release asset (the `-no-render` ones omit it)."
+    # Print the page to PDF.
+    #
+    # Like {#screenshot} this needs a build carrying the render feature. Output
+    # is raster-backed — Obscura reports `print-media-raster` — so the text in
+    # the PDF is drawn, not selectable. Print stylesheets *are* honoured.
+    #
+    # Returns the raw PDF bytes, or writes them and returns `path`.
+    #
+    # Obscura does not implement header/footer rendering or CSS `@page` sizing
+    # yet, so those CDP options are deliberately not exposed; ask for them
+    # through {#command} and the browser will tell you so itself.
+    #
+    # @example A4, backgrounds painted, no margins
+    #   page.pdf(path: "report.pdf", paper: :a4, print_background: true, margin: 0)
+    #
+    # @param path [String, nil] write the document here and return this path.
+    # @param landscape [Boolean] swap the page box.
+    # @param print_background [Boolean] paint backgrounds and images.
+    # @param scale [Float, nil] 0.1..2.0. Smaller fits more per page.
+    # @param paper [Symbol, String, nil] a {PDF_PAPER_SIZES} name. Mutually
+    #   exclusive with `paper_width:`/`paper_height:`.
+    # @param paper_width [Float, nil] page width in inches.
+    # @param paper_height [Float, nil] page height in inches.
+    # @param margin [Numeric, Hash, nil] inches — one number for all four sides,
+    #   or `top:`/`bottom:`/`left:`/`right:`.
+    # @param page_ranges [String, nil] e.g. `"1"`, `"1-3"`, `"1,4-5"`.
+    # @return [String] the PDF bytes, or `path` when one was given.
+    # @raise [ArgumentError] on an unknown paper name, contradictory paper
+    #   options, or a scale outside {PDF_SCALE_RANGE} — before any CDP call.
+    # @raise [Obxcura::Error] if the browser has no render feature.
+    def pdf(path: nil, landscape: false, print_background: false, scale: nil,
+      paper: nil, paper_width: nil, paper_height: nil, margin: nil, page_ranges: nil)
+      width, height = resolve_paper(paper, paper_width, paper_height)
+      validate_pdf!(scale)
+
+      params = {}
+      params[:landscape] = true if landscape
+      params[:printBackground] = true if print_background
+      params[:scale] = scale if scale
+      params[:paperWidth] = width if width
+      params[:paperHeight] = height if height
+      params[:pageRanges] = page_ranges.to_s if page_ranges
+      params.merge!(pdf_margins(margin)) unless margin.nil?
+
+      document = decode_payload(command("Page.printToPDF", params)["data"])
+      return document unless path
+
+      File.binwrite(path, document)
+      path
+    rescue ProtocolError => e
+      raise_unless_render_missing(e, "print to PDF")
     end
 
     private
+
+    # Both #screenshot and #pdf sit behind the same build-time feature, and the
+    # browser refuses each with the same wording.
+    def raise_unless_render_missing(error, action)
+      raise error unless error.message.include?("render feature")
+
+      raise Error, "This Obscura build has no render engine, so it cannot #{action}. " \
+        "Install the unsuffixed release asset (the `-no-render` ones omit it)."
+    end
+
+    def resolve_paper(paper, width, height)
+      if paper && (width || height)
+        raise ArgumentError, "pass either paper: or paper_width:/paper_height:, not both"
+      end
+      return [ width, height ] unless paper
+
+      PDF_PAPER_SIZES.fetch(paper.to_s.downcase.to_sym) do
+        raise ArgumentError,
+          "unknown paper #{paper.inspect} — use one of #{PDF_PAPER_SIZES.keys.join(', ')}"
+      end
+    end
+
+    def validate_pdf!(scale)
+      return if scale.nil? || PDF_SCALE_RANGE.cover?(scale)
+
+      raise ArgumentError,
+        "scale must be between #{PDF_SCALE_RANGE.first} and #{PDF_SCALE_RANGE.last}, got #{scale}"
+    end
+
+    def pdf_margins(margin)
+      if margin.is_a?(Numeric)
+        return { marginTop: margin, marginBottom: margin, marginLeft: margin, marginRight: margin }
+      end
+
+      {
+        marginTop: margin[:top] || margin["top"],
+        marginBottom: margin[:bottom] || margin["bottom"],
+        marginLeft: margin[:left] || margin["left"],
+        marginRight: margin[:right] || margin["right"]
+      }.compact
+    end
 
     def resolve_screenshot_format(format, path)
       return format.to_sym if format
@@ -309,10 +417,10 @@ module Obxcura
       }
     end
 
-    # CDP hands images back as base64. `unpack1("m")` decodes leniently and
-    # returns BINARY, and — unlike the base64 library — needs no require, which
-    # matters since base64 left the default gems in Ruby 3.4.
-    def decode_image(data)
+    # CDP hands binary payloads back as base64. `unpack1("m")` decodes leniently
+    # and returns BINARY, and — unlike the base64 library — needs no require,
+    # which matters since base64 left the default gems in Ruby 3.4.
+    def decode_payload(data)
       data.to_s.unpack1("m")
     end
 

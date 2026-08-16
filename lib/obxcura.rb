@@ -18,7 +18,8 @@
 # Start the browser first (defaults to port 9222):
 #   obscura serve
 #
-# nokogiri is optional — only needed for page.dom / at_css / css.
+# Selector queries (#at_css / #css) run in the browser and return live Nodes, so
+# there is no Ruby-side HTML parser in the dependency list.
 
 require "json"
 require "net/http"
