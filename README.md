@@ -118,6 +118,7 @@ Full reference in [`docs/`](docs/README.md), one page per area:
 | [Running JavaScript](docs/javascript.md) | `#evaluate`, `#evaluate_func`, `#call_on` |
 | [Forms and input](docs/forms.md) | `#focus`, `#type`, `#submit`, `#value` |
 | [HTTP from the page](docs/http.md) | `#post`, `#network_log`, `#cookies` |
+| [Headers](docs/headers.md) | `#headers` — read and set extra HTTP headers |
 | [Screenshots](docs/screenshots.md) | `#screenshot` and every option |
 | [PDF](docs/pdf.md) | `#pdf` and every option |
 | [Errors](docs/errors.md) | The exception hierarchy, and what does *not* raise |

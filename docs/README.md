@@ -17,6 +17,7 @@ Start with the [README](../README.md) to install and get a page on screen.
 | [Running JavaScript](javascript.md) | `#evaluate`, `#evaluate_func`, `#call_on` |
 | [Forms and input](forms.md) | `#focus`, `#type`, `#submit`, `#value` |
 | [HTTP from the page](http.md) | `#post`, `#network_log`, `#cookies`, `#clear_cookies` |
+| [Headers](headers.md) | `#headers` — reading and setting extra HTTP headers |
 | [Screenshots](screenshots.md) | `#screenshot` and every option it takes |
 | [PDF](pdf.md) | `#pdf` and every option it takes |
 | [Errors](errors.md) | The exception hierarchy and what actually raises what |
@@ -49,8 +50,16 @@ Browser.new(host:, port:, timeout:)
 #screenshot(path:, format:, quality:, full_page:, clip:)
 #pdf(path:, landscape:, print_background:, scale:, paper:,
      paper_width:, paper_height:, margin:, page_ranges:)
+#headers                                                     # -> Headers
 #cookies   #network_log    #command(method, params)
 # readers: #frame #target_id #session_id #client
+```
+
+**`Obxcura::Headers`** (from `page.headers`) — [Headers](headers.md)
+
+```ruby
+#get / #to_h  #set(hash)  #add(hash)  #clear
+#[](name)  #[]=(name, value)  #delete(name)  #key?  #empty?  #size
 ```
 
 **`Obxcura::Node`** — [Querying the DOM](dom.md), [Forms](forms.md)
