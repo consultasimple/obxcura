@@ -2,6 +2,24 @@
 
 ### Added
 
+- **`Page#headers`** — a small mutable collection for extra HTTP headers, in the
+  shape Ferrum uses: `#get`/`#to_h`, `#set`, `#add`, `#clear`, plus `#[]`,
+  `#[]=`, `#delete`, `#key?`, `#empty?` and `#size`. Names match
+  case-insensitively per RFC 9110, so writing `x-token` after `X-Token` replaces
+  it instead of sending both. Names and values are stringified, as CDP requires.
+
+  `#get` reports what the object last sent, because that is the only readable
+  record there is: CDP has no getter, and Obscura answers
+  `Network.getExtraHTTPHeaders` with `Unknown Network method`.
+
+  Two measured behaviours the documentation calls out rather than papering over.
+  **The scope is the connection, not the page** — the API hangs off `Page`
+  because that is the only session the command works from (sent without one it is
+  accepted and silently does nothing), but Obscura keeps one table per
+  connection, so two pages on a browser cannot carry different headers and the
+  last write wins. And **they cover navigation only**: script-initiated requests
+  never carry them, so `#post` still needs its own `headers` argument.
+
 - **`Page#pdf`** — print the page, now that Obscura 0.2.0 can. Returns the raw
   PDF bytes, or writes them and returns the path with `path:`. Supports
   `landscape:`, `print_background:`, `scale:` (0.1..2.0), `page_ranges:`,

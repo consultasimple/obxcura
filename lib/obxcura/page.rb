@@ -99,6 +99,23 @@ module Obxcura
       @network_mutex.synchronize { @network_log.map(&:dup) }
     end
 
+    # Extra HTTP headers sent with requests this page navigates to.
+    #
+    #   page.headers.set("X-Token" => "abc")
+    #   page.headers.add("Accept-Language" => "es-MX")
+    #   page.headers["X-Token"]          # => "abc"
+    #   page.headers.clear
+    #
+    # Read {Obxcura::Headers} before relying on the scope: Obscura applies one
+    # table per *connection*, so this changes the headers for every page on the
+    # same browser, and it covers navigation only — {#post} needs its own
+    # `headers` argument.
+    #
+    # @return [Obxcura::Headers] this page's header collection.
+    def headers
+      @headers ||= Headers.new(self)
+    end
+
     # Navigate to `url` and block until the page's load event fires. Aliased as
     # `go_to`.
     #

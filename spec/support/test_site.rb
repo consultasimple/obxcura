@@ -46,6 +46,12 @@ module TestSite
         x_test: req["X-Test"]
       )
     end
+    # Echoes every request header back as JSON, so header specs can assert on
+    # what actually reached the server rather than on what CDP accepted.
+    @server.mount_proc("/headers") do |req, res|
+      res.content_type = "application/json"
+      res.body = JSON.generate(req.header.transform_values { |values| values.join(",") })
+    end
     # Always answers 500, so POST specs can exercise the HTTP-error path.
     @server.mount_proc("/boom") do |_req, res|
       res.status = 500

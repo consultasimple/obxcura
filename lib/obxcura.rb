@@ -61,6 +61,7 @@ module Obxcura
 end
 
 require_relative "obxcura/client"
+require_relative "obxcura/headers"
 require_relative "obxcura/node"
 require_relative "obxcura/frame"
 require_relative "obxcura/browser"
