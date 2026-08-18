@@ -1,5 +1,30 @@
 ## [Unreleased]
 
+### Fixed
+
+- **`Browser#create_page(url)` no longer kills the browser.** Handing a URL to
+  `Target.createTarget` works exactly once: the *second* such call on a
+  connection takes `obscura serve` down outright — every command after it fails
+  with `connection closed: end of file reached`, and the process is gone, not
+  just the socket.
+
+  ```ruby
+  browser.create_page("https://www.google.com.mx")   # fine
+  browser.create_page("https://example.com")         # browser dies here
+  ```
+
+  Measured on 0.2.0 and fully deterministic, whatever the URLs are — two local
+  ones crash it just the same. One URL-loaded target is safe, any number of
+  `about:blank` targets is safe, navigation is safe, and two URL-loaded targets
+  on *separate* connections are safe. It is specifically the second
+  `createTarget` carrying a URL.
+
+  `#create_page` now always creates the target blank and navigates, so the
+  parameter is honoured without handing callers a way to kill the browser. It
+  blocks until the load event fires, which makes `#go_to` simply its expressive
+  name. The workaround note on `#go_to` was also slightly wrong: the crash needs
+  no `evaluate`, it lands on the `create_page` call itself.
+
 ### Added
 
 - **`Page#headers`** — a small mutable collection for extra HTTP headers, in the

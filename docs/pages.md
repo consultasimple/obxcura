@@ -5,17 +5,25 @@ A `Page` is one CDP target with its own attached session. You get one from a
 
 ```ruby
 page = browser.create_page                        # about:blank
-page = browser.create_page("https://example.com") # opened at a URL
-page = browser.go_to("https://example.com")       # create + navigate + wait
+page = browser.create_page("https://example.com") # create + navigate + wait
+page = browser.go_to("https://example.com")       # the same thing, named better
 ```
+
+## `Browser#create_page(url = "about:blank")`
+
+Creates a target, attaches to it, and — when given a URL — navigates there and
+blocks until the load event fires. Returns the tracked `Page`.
+
+The target is **always created blank and then navigated**, never opened at the
+URL directly. Handing a URL to `Target.createTarget` works exactly once: the
+second such call on a connection kills `obscura serve`, process and all. See
+[Browser constraints](constraints.md). The parameter is honoured by navigating
+instead, so this is not something you can trip over through the gem.
 
 ## `Browser#go_to(url)` / `#goto`
 
-The one you want most of the time. It creates a blank target and *then*
-navigates, rather than handing the URL to `Target.createTarget`, because opening
-two URL-loaded targets and evaluating in them crashes `obscura serve`.
-
-Returns the `Page`, already loaded.
+The expressive name for `#create_page` with a URL — identical behaviour. Returns
+the `Page`, already loaded.
 
 ## `Page#goto(url)` / `#go_to`
 

@@ -18,6 +18,10 @@ module Obxcura
     DEFAULT_HOST = "127.0.0.1"
     # @return [Integer] default CDP port for `obscura serve`.
     DEFAULT_PORT = 9222
+    # The only URL a target may safely be created at; see {#create_page}.
+    #
+    # @return [String]
+    BLANK_PAGE = "about:blank"
 
     # @return [Obxcura::Client] the underlying CDP transport.
     # @return [Array<Obxcura::Page>] the pages currently open.
@@ -41,29 +45,38 @@ module Obxcura
       @client = Client.new(browser_ws_url, timeout: @timeout)
     end
 
-    # Open a fresh page (a CDP target) and attach to it.
+    # Open a fresh page (a CDP target) and attach to it. With a `url`, the page
+    # is navigated there and the call blocks until its load event fires.
     #
-    # @param url [String] URL to open the target at (defaults to a blank page).
+    # The target is always created blank and then navigated, never opened at
+    # `url` directly. Handing a URL to `Target.createTarget` works exactly once:
+    # the *second* such call on a connection kills `obscura serve` outright —
+    # every command after it fails with `connection closed: end of file
+    # reached`, and the process is gone, not just the socket. Measured on 0.2.0
+    # and deterministic, whatever the URLs are; two blank targets are fine, and
+    # so is any amount of navigation. Since the parameter cannot be honoured
+    # literally without handing callers a way to kill the browser, it is honoured
+    # by navigating.
+    #
+    # @param url [String] URL to open the page at (defaults to a blank page).
     # @return [Obxcura::Page] the new, tracked page.
-    def create_page(url = "about:blank")
-      target_id = command("Target.createTarget", { url: url })["targetId"]
+    def create_page(url = BLANK_PAGE)
+      target_id = command("Target.createTarget", { url: BLANK_PAGE })["targetId"]
       session_id = command("Target.attachToTarget", { targetId: target_id, flatten: true })["sessionId"]
 
       page = Page.new(self, target_id: target_id, session_id: session_id)
       @pages << page
+      page.goto(url) unless url == BLANK_PAGE
       page
     end
 
-    # Open a page and navigate to `url` in one call.
-    #
-    # Navigates from a blank target rather than passing the URL straight to
-    # Target.createTarget: creating two URL-loaded targets and then evaluating
-    # crashes `obscura serve` (connection closed: end of file reached).
+    # Open a page and navigate to `url` in one call — the expressive name for
+    # {#create_page} with a URL.
     #
     # @param url [String] URL to navigate to.
     # @return [Obxcura::Page] the navigated page (load event fired).
     def go_to(url)
-      create_page.goto(url)
+      create_page(url)
     end
     alias goto go_to
 

@@ -41,6 +41,28 @@ module ObscuraServer
     @port
   end
 
+  # Boot a throwaway `obscura serve` for one example and kill it afterwards.
+  #
+  # The suite shares a single browser process, so an example that can take that
+  # process down would cascade into every example after it. Anything exercising
+  # a known crash runs against its own.
+  #
+  # @yieldparam port [Integer] the throwaway server's port.
+  def isolated
+    port = free_port
+    pid = spawn(binary, "serve", "--port", port.to_s, "--allow-private-network",
+      out: File::NULL, err: File::NULL)
+    wait_until_up(port)
+    yield port
+  ensure
+    begin
+      Process.kill("KILL", pid) if pid
+      Process.wait(pid) if pid
+    rescue Errno::ESRCH, Errno::ECHILD
+      nil
+    end
+  end
+
   # Whether the running binary was built with the render feature.
   #
   # 0.2.0 ships render and no-render builds of the same version, so `--version`

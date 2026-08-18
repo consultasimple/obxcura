@@ -43,6 +43,29 @@ Practical consequences:
   (`browser.client.close`) rather than `#quit`, which sends `Target.closeTarget`
   over that same starved connection and waits behind it.
 
+## A second target created at a URL kills the process
+
+`Target.createTarget` accepts a URL and honours it — once. The **second** call
+carrying a URL on the same connection takes `obscura serve` down: the command
+fails with `connection closed: end of file reached`, and the process itself is
+gone, not just the socket.
+
+| | process |
+|---|---|
+| one target created at a URL | survives |
+| any number of `about:blank` targets | survives |
+| creating blank, then navigating (any number of times) | survives |
+| two URL-created targets on *separate* connections | survives |
+| **two URL-created targets on one connection** | **dies** |
+
+Deterministic on 0.2.0, and nothing to do with the sites — two localhost URLs
+kill it exactly the same way.
+
+[`#create_page`](pages.md) therefore always creates the target blank and then
+navigates, whether or not you passed a URL, so this is not reachable through the
+gem. It matters if you drive `Target.createTarget` yourself through
+[`#command`](pages.md).
+
 ## In-page throws vanish
 
 A JavaScript `throw` comes back as `undefined`, not an exception. Return
