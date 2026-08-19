@@ -1,29 +1,36 @@
 ## [Unreleased]
 
-### Fixed
+## [0.4.0] - 2026-08-18
 
-- **`Browser#create_page(url)` no longer kills the browser.** Handing a URL to
-  `Target.createTarget` works exactly once: the *second* such call on a
-  connection takes `obscura serve` down outright — every command after it fails
-  with `connection closed: end of file reached`, and the process is gone, not
-  just the socket.
+Catches the client up with Obscura 0.2.0 — which grew a native render engine —
+and gives extra headers and cookies proper read/write collections instead of raw
+CDP calls. As always, every behaviour below was measured against the binary
+rather than taken from the protocol docs, and the places where Obscura departs
+from Chrome are documented instead of papered over: cookie reads that ignore the
+URL you ask about, deletes that compare the path exactly, expired cookies that
+linger in the jar, and a PDF engine that draws text rather than embedding it.
 
-  ```ruby
-  browser.create_page("https://www.google.com.mx")   # fine
-  browser.create_page("https://example.com")         # browser dies here
-  ```
+One breaking change, in `Page#cookies` — see below.
 
-  Measured on 0.2.0 and fully deterministic, whatever the URLs are — two local
-  ones crash it just the same. One URL-loaded target is safe, any number of
-  `about:blank` targets is safe, navigation is safe, and two URL-loaded targets
-  on *separate* connections are safe. It is specifically the second
-  `createTarget` carrying a URL.
+Also fixes a way to kill the browser outright from the public API.
 
-  `#create_page` now always creates the target blank and navigates, so the
-  parameter is honoured without handing callers a way to kill the browser. It
-  blocks until the load event fires, which makes `#go_to` simply its expressive
-  name. The workaround note on `#go_to` was also slightly wrong: the crash needs
-  no `evaluate`, it lands on the `create_page` call itself.
+### Changed
+
+- **`Page#cookies` returns a collection, not an `Array`.** It used to hand back
+  the connection's whole jar as an array of hashes; it now returns an
+  `Obxcura::Cookies`, enumerable over the cookies the page's URL would actually
+  send. `#map`, `#select`, `#find` and friends keep working, and the old value is
+  `page.cookies.all`.
+
+  What breaks quietly is integer indexing: `page.cookies[0]` used to be the first
+  cookie hash and now looks up the cookie *named* `"0"`, so it returns `nil` —
+  and `page.cookies[0]["value"]` becomes a `NoMethodError` on nil. Reach for
+  `page.cookies.to_a[0]`, or better, `page.cookies["session"]`.
+
+- CI pins Obscura `v0.2.0` and now installs the **render** build, since the
+  screenshot specs would otherwise skip rather than fail. It also triggered on
+  pushes to `master` while the default branch is `main`, so the push trigger
+  could never fire; both are fixed.
 
 ### Added
 
@@ -123,23 +130,30 @@
   Unsupported formats and contradictory options (`full_page:` with `clip:`) raise
   `ArgumentError` before any CDP round trip.
 
-### Changed
+### Fixed
 
-- **`Page#cookies` returns a collection, not an `Array`.** It used to hand back
-  the connection's whole jar as an array of hashes; it now returns an
-  `Obxcura::Cookies`, enumerable over the cookies the page's URL would actually
-  send. `#map`, `#select`, `#find` and friends keep working, and the old value is
-  `page.cookies.all`.
+- **`Browser#create_page(url)` no longer kills the browser.** Handing a URL to
+  `Target.createTarget` works exactly once: the *second* such call on a
+  connection takes `obscura serve` down outright — every command after it fails
+  with `connection closed: end of file reached`, and the process is gone, not
+  just the socket.
 
-  What breaks quietly is integer indexing: `page.cookies[0]` used to be the first
-  cookie hash and now looks up the cookie *named* `"0"`, so it returns `nil` —
-  and `page.cookies[0]["value"]` becomes a `NoMethodError` on nil. Reach for
-  `page.cookies.to_a[0]`, or better, `page.cookies["session"]`.
+  ```ruby
+  browser.create_page("https://www.google.com.mx")   # fine
+  browser.create_page("https://example.com")         # browser dies here
+  ```
 
-- CI pins Obscura `v0.2.0` and now installs the **render** build, since the
-  screenshot specs would otherwise skip rather than fail. It also triggered on
-  pushes to `master` while the default branch is `main`, so the push trigger
-  could never fire; both are fixed.
+  Measured on 0.2.0 and fully deterministic, whatever the URLs are — two local
+  ones crash it just the same. One URL-loaded target is safe, any number of
+  `about:blank` targets is safe, navigation is safe, and two URL-loaded targets
+  on *separate* connections are safe. It is specifically the second
+  `createTarget` carrying a URL.
+
+  `#create_page` now always creates the target blank and navigates, so the
+  parameter is honoured without handing callers a way to kill the browser. It
+  blocks until the load event fires, which makes `#go_to` simply its expressive
+  name. The workaround note on `#go_to` was also slightly wrong: the crash needs
+  no `evaluate`, it lands on the `create_page` call itself.
 
 ## [0.3.0] - 2026-07-29
 
