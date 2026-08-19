@@ -158,9 +158,26 @@ module Obxcura
     end
     alias_method :reload, :refresh
 
-    # @return [Array<Hash>] the page's cookies as CDP cookie hashes.
+    # The browser's cookies, seen from this page.
+    #
+    #   page.cookies.map { |c| c["name"] }   # what the current URL would send
+    #   page.cookies["session"]              # one of them by name
+    #   page.cookies.all                     # the whole connection's jar
+    #   page.cookies.set("token", "abc")
+    #   page.cookies.remove("token")
+    #
+    # Enumerable over the cookies the browser would attach to {#current_url} —
+    # including the HttpOnly ones `document.cookie` hides, which is usually the
+    # point — and writable through `#set`, `#remove` and `#clear`.
+    #
+    # Read {Obxcura::Cookies} before trusting the scope: the jar belongs to the
+    # *connection*, the filtering is done in Ruby because Obscura ignores
+    # `Network.getCookies`' `urls:` parameter, and an expired cookie stays in the
+    # jar without ever being sent.
+    #
+    # @return [Obxcura::Cookies] this page's cookie collection.
     def cookies
-      command("Storage.getCookies")["cookies"]
+      @cookies ||= Cookies.new(self)
     end
 
     # Send a CDP command scoped to this page's session.

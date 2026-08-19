@@ -102,16 +102,12 @@ page.network_log.length          # unchanged
 
 ## Cookies
 
-```ruby
-page.cookies    # => [{"name" => "session", "value" => "...", "domain" => "...", ...}]
-```
-
-Raw CDP cookie hashes, string-keyed, for this page.
-
-Clearing is browser-wide — see [Connecting](connecting.md):
+Cookies have their own page now: [Cookies](cookies.md).
 
 ```ruby
-browser.clear_cookies
+page.cookies["session"]         # what the current URL would send
+page.cookies.set("token", "x")
+browser.clear_cookies           # the whole connection's jar
 ```
 
 Since 0.1.11 each connection owns its own browser context, so cookies do not leak

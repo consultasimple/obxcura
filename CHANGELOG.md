@@ -27,6 +27,41 @@
 
 ### Added
 
+- **`Page#cookies`** — the browser's cookie jar seen from one page: `Enumerable`
+  over the cookies that page's URL would actually send, and writable. `#all`,
+  `#[]`, `#for_url`, `#size`, `#empty?` for reading; `#set`, `#remove`, `#clear`
+  for writing. Cookies stay raw CDP hashes with string keys, so what comes out of
+  a read goes straight back into `#set` — `fresh.cookies.set(saved)` moves a
+  logged-in session into another browser. Includes the `HttpOnly` cookies
+  `document.cookie` cannot see, which is the whole reason to read them over CDP.
+
+  `#set` takes `url:`, `domain:`, `path:`, `secure:`, `http_only:`, `same_site:`
+  and `expires:` (a `Time` or epoch seconds), defaulting to the page's current
+  URL because the browser refuses a cookie that belongs nowhere. Unknown options
+  and a bad `same_site:` raise `ArgumentError` rather than reaching the browser,
+  which accepts both silently — a bogus `sameSite` is stored as `Lax` without
+  complaint.
+
+  Four measured browser behaviours shaped this, all documented in
+  [`docs/cookies.md`](docs/cookies.md):
+
+  - **Cookie reads ignore the URL you ask about.** `Network.getCookies` accepts a
+    `urls:` parameter and Obscura ignores it — that call, `Storage.getCookies`
+    and `Network.getAllCookies` all return the whole connection-wide jar, from
+    any page's session. So the scoping is done in Ruby, following RFC 6265
+    §5.1.3–5.1.4: domain, path, `Secure`, expiry. Ports are not part of cookie
+    scope.
+  - **An expired cookie stays in the jar** and is simply never sent, so `#all`
+    can show what will never go on the wire while the scoped view drops it.
+  - **`Network.deleteCookies` compares the path exactly** — a delete aimed at
+    `/cookies` leaves a cookie set on `/` alone, silently. `#remove` therefore
+    looks the cookie up first and deletes at the domain and path the jar reports,
+    and returns whether the jar actually changed.
+  - **Host-only cookies cannot be told apart.** Chrome stores `Domain=example.com`
+    as `.example.com`; Obscura stores it verbatim, leaving nothing to distinguish
+    it from a host-only cookie. Domain matching is applied to every entry — over
+    reporting beats losing the session cookie you came for.
+
 - **`Page#headers`** — a small mutable collection for extra HTTP headers, in the
   shape Ferrum uses: `#get`/`#to_h`, `#set`, `#add`, `#clear`, plus `#[]`,
   `#[]=`, `#delete`, `#key?`, `#empty?` and `#size`. Names match
@@ -89,6 +124,17 @@
   `ArgumentError` before any CDP round trip.
 
 ### Changed
+
+- **`Page#cookies` returns a collection, not an `Array`.** It used to hand back
+  the connection's whole jar as an array of hashes; it now returns an
+  `Obxcura::Cookies`, enumerable over the cookies the page's URL would actually
+  send. `#map`, `#select`, `#find` and friends keep working, and the old value is
+  `page.cookies.all`.
+
+  What breaks quietly is integer indexing: `page.cookies[0]` used to be the first
+  cookie hash and now looks up the cookie *named* `"0"`, so it returns `nil` —
+  and `page.cookies[0]["value"]` becomes a `NoMethodError` on nil. Reach for
+  `page.cookies.to_a[0]`, or better, `page.cookies["session"]`.
 
 - CI pins Obscura `v0.2.0` and now installs the **render** build, since the
   screenshot specs would otherwise skip rather than fail. It also triggered on

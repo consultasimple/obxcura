@@ -52,6 +52,33 @@ module TestSite
       res.content_type = "application/json"
       res.body = JSON.generate(req.header.transform_values { |values| values.join(",") })
     end
+    # Sets two cookies on the root path: one the page can read and one HttpOnly,
+    # which document.cookie never sees. Session cookies are usually HttpOnly, so
+    # that second one is the whole reason to read the jar over CDP.
+    @server.mount_proc("/cookies") do |_req, res|
+      res["Set-Cookie"] = "secret=httponly-value; Path=/; Max-Age=600; HttpOnly"
+      res.cookies << WEBrick::Cookie.new("session", "abc123").tap do |cookie|
+        cookie.path = "/"
+        cookie.max_age = 600
+      end
+      res.content_type = "text/html"
+      res.body = "<!doctype html><html><body id=\"cookies\">ok</body></html>"
+    end
+    # Echoes back the Cookie header, which is the only witness of what the
+    # browser actually sent — the jar can hold cookies it never puts on the wire.
+    @server.mount_proc("/echo-cookies") do |req, res|
+      res.content_type = "application/json"
+      res.body = JSON.generate(cookie: req["Cookie"])
+    end
+    # Sets a cookie scoped to /deep, so path matching is observable.
+    @server.mount_proc("/deep/cookies") do |_req, res|
+      res.cookies << WEBrick::Cookie.new("deep", "scoped").tap do |cookie|
+        cookie.path = "/deep"
+        cookie.max_age = 600
+      end
+      res.content_type = "text/html"
+      res.body = "<!doctype html><html><body id=\"deep\">ok</body></html>"
+    end
     # Always answers 500, so POST specs can exercise the HTTP-error path.
     @server.mount_proc("/boom") do |_req, res|
       res.status = 500

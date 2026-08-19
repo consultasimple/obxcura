@@ -77,7 +77,7 @@ not leak between `Browser` instances. This only resets state *within* one
 connection. Because `obscura serve` is long-lived and `#quit` just drops the
 socket, opening a fresh `Browser` is the other way to get a clean jar.
 
-Reading cookies is per page — see [HTTP from the page](http.md).
+Reading and writing cookies is per page — see [Cookies](cookies.md).
 
 ## Shutting down
 
