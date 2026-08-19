@@ -16,7 +16,8 @@ Start with the [README](../README.md) to install and get a page on screen.
 | [Querying the DOM](dom.md) | `#at_css`, `#css`, and everything on `Node` |
 | [Running JavaScript](javascript.md) | `#evaluate`, `#evaluate_func`, `#call_on` |
 | [Forms and input](forms.md) | `#focus`, `#type`, `#submit`, `#value` |
-| [HTTP from the page](http.md) | `#post`, `#network_log`, `#cookies`, `#clear_cookies` |
+| [HTTP from the page](http.md) | `#post`, `#network_log` |
+| [Cookies](cookies.md) | `#cookies` — read, set, remove, replay a session |
 | [Headers](headers.md) | `#headers` — reading and setting extra HTTP headers |
 | [Screenshots](screenshots.md) | `#screenshot` and every option it takes |
 | [PDF](pdf.md) | `#pdf` and every option it takes |
@@ -51,8 +52,17 @@ Browser.new(host:, port:, timeout:)
 #pdf(path:, landscape:, print_background:, scale:, paper:,
      paper_width:, paper_height:, margin:, page_ranges:)
 #headers                                                     # -> Headers
-#cookies   #network_log    #command(method, params)
+#cookies                                                     # -> Cookies
+#network_log   #command(method, params)
 # readers: #frame #target_id #session_id #client
+```
+
+**`Obxcura::Cookies`** (from `page.cookies`) — [Cookies](cookies.md)
+
+```ruby
+#all   #each / Enumerable   #[](name)   #for_url(url)   #size   #empty?
+#set(name, value, url:, domain:, path:, secure:, http_only:, same_site:, expires:)
+#set(cookie_hash)          #remove(name, url:, domain:, path:)   #clear
 ```
 
 **`Obxcura::Headers`** (from `page.headers`) — [Headers](headers.md)

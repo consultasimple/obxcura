@@ -117,7 +117,8 @@ Full reference in [`docs/`](docs/README.md), one page per area:
 | [Querying the DOM](docs/dom.md) | `#at_css`, `#css`, and every `Node` method |
 | [Running JavaScript](docs/javascript.md) | `#evaluate`, `#evaluate_func`, `#call_on` |
 | [Forms and input](docs/forms.md) | `#focus`, `#type`, `#submit`, `#value` |
-| [HTTP from the page](docs/http.md) | `#post`, `#network_log`, `#cookies` |
+| [HTTP from the page](docs/http.md) | `#post`, `#network_log` |
+| [Cookies](docs/cookies.md) | `#cookies` — read, set, remove, replay a session |
 | [Headers](docs/headers.md) | `#headers` — read and set extra HTTP headers |
 | [Screenshots](docs/screenshots.md) | `#screenshot` and every option |
 | [PDF](docs/pdf.md) | `#pdf` and every option |

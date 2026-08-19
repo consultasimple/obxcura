@@ -84,6 +84,37 @@ has to arrive as a *resolved* value.
 requests emit **nothing**. So `#post` traffic never lands in
 [`#network_log`](http.md) — measured, despite upstream notes claiming otherwise.
 
+## Cookie reads ignore the URL you ask about
+
+`Network.getCookies` takes a `urls:` parameter and Obscura **ignores it**.
+Measured against 0.2.0: `Storage.getCookies`, `Network.getAllCookies`, and
+`Network.getCookies` with or without `urls:` all return the same thing — the
+entire jar of the connection's browser context — whatever URL you name and
+whichever page's session you send it from. Asking about `https://example.com/`
+while parked on localhost returns the localhost cookies.
+
+So [`#cookies`](cookies.md) does the domain/path/`Secure` matching in Ruby, and
+`page.cookies.all` hands you the raw jar. Related: Obscura stores `Domain=example.com`
+verbatim instead of normalising it to `.example.com`, so a stored cookie carries
+no reliable marker of whether it is host-only.
+
+Two more measured quirks in the same corner:
+
+- **An expired cookie stays in the jar.** Obscura does not sweep it; it just
+  stops sending it. A raw read can therefore show you a cookie that will never
+  go on the wire, which is why the scoped view checks expiry itself.
+- **`Network.deleteCookies` compares the path exactly.** A delete aimed at
+  `/cookies` leaves a cookie set on `/` untouched, and one aimed at `/` leaves
+  `/deep` untouched — silently, in both directions. `#remove` works around it by
+  looking the cookie up in the jar and deleting at the domain and path reported
+  there.
+
+Writes themselves work: `Network.setCookie` (including `httpOnly:`, `secure:`,
+`expires:`), `Network.deleteCookies` and `Network.clearBrowserCookies`. An
+injected cookie does reach the server on the next navigation. But `setCookie`
+*requires* `url:` or `domain:`, and accepts unknown parameters — and a bogus
+`sameSite` — without a word, storing `Lax`. See [Cookies](cookies.md).
+
 ## `Input.insertText` is unimplemented
 
 There is no bulk-insert path, so [`#type`](forms.md) dispatches per character at
